@@ -1,0 +1,12 @@
+{
+  "name": "east-coast-sailing-sim",
+  "version": "1.0.0",
+  "description": "東海岸帆船航行模擬：在瀏覽器裡開邊架艇與水翼雙體船的 3D 模擬器",
+  "private": true,
+  "scripts": {
+    "build": "node build.js",
+    "polar": "node tools/polar.js",
+    "polar:foiler": "node tools/polar.js foiler"
+  },
+  "engines": { "node": ">=16" }
+}

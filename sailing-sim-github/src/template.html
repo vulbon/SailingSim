@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>東海岸帆船航行模擬</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ink: #f3f6f8;
+  --ink-dim: #a9b8c6;
+  --panel: rgba(24, 36, 52, 0.72);
+  --panel-line: rgba(255, 255, 255, 0.14);
+  --jade: #3fae7c;
+  --jade-deep: #1f6b4c;
+  --route: #e0463c;
+  --warn: #f2b33d;
+  --card-bg: rgba(244, 246, 242, 0.94);
+  --card-ink: #1c2733;
+  --card-dim: #55636f;
+  --card-line: rgba(28, 39, 51, 0.14);
+  --font: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", "Heiti TC", system-ui, sans-serif;
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --card-bg: rgba(20, 30, 42, 0.94);
+    --card-ink: #eef2f5;
+    --card-dim: #9fb0bf;
+    --card-line: rgba(255, 255, 255, 0.14);
+  }
+}
+:root[data-theme="dark"] {
+  --card-bg: rgba(20, 30, 42, 0.94);
+  --card-ink: #eef2f5;
+  --card-dim: #9fb0bf;
+  --card-line: rgba(255, 255, 255, 0.14);
+}
+*, *::before, *::after { box-sizing: inherit; }
+html { scroll-padding-top: env(safe-area-inset-top, 0px); height: 100%; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #8fb3d6; }
+body { font-family: var(--font); color: var(--ink); -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
+canvas#gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+button { font-family: inherit; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--warn); outline-offset: 2px; }
+
+/* ---------- HUD ---------- */
+.hud { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .5s; }
+.hud.on { opacity: 1; }
+.stats {
+  position: absolute; left: calc(12px + env(safe-area-inset-left, 0px)); top: calc(12px + env(safe-area-inset-top, 0px));
+  display: grid; gap: 4px; width: clamp(150px, 19vw, 210px);
+}
+.row {
+  display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px;
+  background: var(--panel); border: 1px solid var(--panel-line); border-radius: 4px;
+  padding: 5px 10px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+}
+.row .k { font-size: 12px; line-height: 1.2; }
+.row .k small { display: block; font-size: 9.5px; color: var(--ink-dim); letter-spacing: .02em; }
+.row .v { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; line-height: 1.15; }
+.row .v small { display: block; font-size: 10px; font-weight: 500; color: var(--ink-dim); }
+.row.time { background: rgba(31, 107, 76, 0.82); }
+.row.time .v { color: #b9f5d6; font-size: 18px; }
+.row.time.low { background: rgba(160, 40, 34, 0.85); }
+.row.time.low .v { color: #ffd9d4; }
+.arrow { display: inline-block; font-size: 18px; transition: transform .25s linear; }
+svg.ico { width: 22px; height: 22px; display: block; }
+
+.nav { position: absolute; right: calc(10px + env(safe-area-inset-right, 0px)); top: calc(10px + env(safe-area-inset-top, 0px)); display: grid; justify-items: center; gap: 4px; pointer-events: auto; }
+#map { width: clamp(132px, 21vw, 230px); height: clamp(132px, 21vw, 230px); display: block; cursor: pointer; filter: drop-shadow(0 4px 10px rgba(0,0,0,.25)); }
+.nav { position: absolute; }
+.menu-btn { position: absolute; top: -4px; right: -4px; z-index: 2; width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--panel-line); background: var(--panel); color: var(--ink); font-size: 0; line-height: 0; padding: 0; display: grid; place-items: center; cursor: pointer; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.menu-btn:active { background: rgba(63,174,124,.75); }
+.twa { text-align: center; background: var(--panel); border: 1px solid var(--panel-line); border-radius: 4px; padding: 4px 12px; min-width: 60%; }
+.twa .k { font-size: 11px; }
+.twa .k small { font-size: 9px; color: var(--ink-dim); margin-left: 4px; }
+.twa .v { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.twa .next { font-size: 10.5px; color: var(--ink-dim); }
+
+/* 中上欄：狀態晶片、教室說明、通知依序往下排，彼此不會重疊（寬度限制在左右兩欄之間） */
+.topc { position: absolute; left: 50%; top: calc(12px + env(safe-area-inset-top, 0px)); transform: translateX(-50%);
+  width: min(460px, 42vw); display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.status { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; max-width: 100%; }
+.chip { background: var(--panel); border: 1px solid var(--panel-line); border-radius: 999px; padding: 4px 12px; font-size: 12.5px; white-space: nowrap; }
+.chip b { font-weight: 700; }
+.chip.good { border-color: rgba(63, 174, 124, .7); }
+.chip.bad { border-color: rgba(242, 179, 61, .8); color: #ffe2a8; }
+.trimbar { width: 64px; height: 6px; display: inline-block; background: rgba(255,255,255,.18); border-radius: 3px; vertical-align: middle; margin-left: 6px; overflow: hidden; }
+.trimbar i { display: block; height: 100%; width: 0; background: var(--jade); transition: width .2s; }
+
+/* 通知（任務提示、警告）放在同一個欄位裡上下排列，兩者同時出現也不會互相蓋住 */
+.notices { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.toast, .banner { display: none; text-align: center; border-radius: 6px; max-width: 100%; animation: pop .3s ease-out; }
+.toast.show, .banner.show { display: block; }
+@keyframes pop { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }
+.toast { background: rgba(31, 107, 76, 0.9); padding: 9px 20px; font-size: 17px; font-weight: 700; }
+.toast small { display: block; font-size: 12px; font-weight: 400; opacity: .85; }
+.banner { background: rgba(120, 30, 26, 0.85); border: 1px solid rgba(255,255,255,.2); padding: 9px 16px; font-size: 15px; font-weight: 700; }
+.banner small { display: block; font-weight: 400; font-size: 12px; color: #f7d6d2; margin-top: 2px; }
+/* 效能資訊放在右上角地圖欄的最下面，跟著那一欄走，不會壓到任何操作按鈕 */
+.perf { max-width: 150px; font-size: 10.5px; line-height: 1.35; text-align: center; background: rgba(0,0,0,.55); padding: 3px 8px; border-radius: 4px; font-variant-numeric: tabular-nums; }
+.perf[hidden] { display: none; }
+
+/* ---------- Controls ---------- */
+.controls { position: fixed; left: 0; right: 0; bottom: 0; padding: 0 calc(12px + env(safe-area-inset-right, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) calc(12px + env(safe-area-inset-left, 0px)); display: flex; justify-content: space-between; align-items: flex-end; gap: 10px; pointer-events: none; opacity: 0; transition: opacity .5s; }
+.controls.on { opacity: 1; }
+.controls > * { pointer-events: auto; }
+.helm { display: flex; gap: 10px; align-items: flex-end; }
+.helm button {
+  width: 68px; height: 68px; border-radius: 50%; border: 1px solid var(--panel-line); background: var(--panel); color: var(--ink);
+  font-size: 13px; display: grid; place-items: center; touch-action: none; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+}
+.helm button span { font-size: 24px; line-height: 1; display: block; }
+.helm button.down { background: rgba(63, 174, 124, .75); }
+.rudderview { width: 70px; text-align: center; font-size: 10.5px; color: var(--ink-dim); align-self: center; }
+.rudderview .dial { height: 6px; background: rgba(255,255,255,.2); border-radius: 3px; position: relative; margin: 4px 0; }
+.rudderview .dial i { position: absolute; top: -3px; width: 4px; height: 12px; margin-left: -2px; left: 50%; background: var(--ink); border-radius: 2px; }
+
+.mid { display: flex; gap: 6px; align-items: flex-end; flex-wrap: wrap; justify-content: center; }
+.pill { border: 1px solid var(--panel-line); background: var(--panel); color: var(--ink); border-radius: 999px; padding: 8px 14px; font-size: 13px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); cursor: pointer; }
+.pill[aria-pressed="true"] { background: rgba(63, 174, 124, .78); }
+
+.sheet { background: var(--panel); border: 1px solid var(--panel-line); border-radius: 6px; padding: 8px 12px 10px; width: clamp(200px, 26vw, 300px); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.sheet .lab { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px; }
+.sheet .lab b { font-variant-numeric: tabular-nums; }
+.track { position: relative; height: 34px; touch-action: none; cursor: pointer; }
+.track .rail { position: absolute; left: 0; right: 0; top: 14px; height: 6px; border-radius: 3px; background: linear-gradient(90deg, #2d4a66, #6a8fb1); }
+.track .ideal { position: absolute; top: 8px; width: 16px; height: 18px; margin-left: -8px; border-radius: 3px; background: rgba(63,174,124,.45); border: 1px solid var(--jade); transition: left .25s; }
+.track .knob { position: absolute; top: 5px; width: 24px; height: 24px; margin-left: -12px; border-radius: 50%; background: #f3f6f8; box-shadow: 0 2px 6px rgba(0,0,0,.35); }
+.track .ends { position: absolute; top: 24px; left: 0; right: 0; display: flex; justify-content: space-between; font-size: 10px; color: var(--ink-dim); }
+.keys { font-size: 10px; color: var(--ink-dim); margin-top: 2px; }
+.ride { display: flex; justify-content: space-between; align-items: center; font-size: 12px; margin-top: 6px; gap: 6px; white-space: nowrap; }
+.ride > span:last-child { display: flex; }
+.ride[hidden] { display: none; }
+.ride .mini { width: 34px; height: 28px; margin-left: 6px; border-radius: 5px; border: 1px solid var(--panel-line); background: rgba(255,255,255,.08); color: var(--ink); font-size: 12px; touch-action: none; }
+.ride .mini.down { background: rgba(63,174,124,.7); }
+.chip[hidden] { display: none; }
+
+/* ---------- Cards ---------- */
+.overlay { position: fixed; inset: 0; display: grid; align-items: center; justify-items: start; padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(16px + env(safe-area-inset-bottom, 0px)) calc(16px + max(4vw, env(safe-area-inset-left, 0px))); background: linear-gradient(90deg, rgba(10,20,30,.45), rgba(10,20,30,0) 70%); overflow-y: auto; }
+.overlay[hidden] { display: none; }
+.card { background: var(--card-bg); color: var(--card-ink); border-radius: 8px; padding: 26px 28px 24px; max-width: 470px; width: 100%; box-shadow: 0 18px 50px rgba(0,0,0,.28); }
+.card h1 { font-size: clamp(30px, 5vw, 42px); font-weight: 900; letter-spacing: .06em; margin: 0; line-height: 1.15; }
+.card .en { font-size: 15px; letter-spacing: .04em; margin: 4px 0 14px; color: var(--card-dim); }
+.card p { font-size: 14.5px; line-height: 1.75; margin: 0 0 14px; }
+.card h2 { font-size: 13px; font-weight: 700; margin: 16px 0 8px; }
+.seas { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+@media (max-width: 520px) { .seas { grid-template-columns: repeat(2, 1fr); } }
+.seas label { border: 1px solid var(--card-line); border-radius: 6px; padding: 9px 8px; cursor: pointer; font-size: 13px; line-height: 1.35; display: block; }
+.seas label b { display: block; font-size: 14px; }
+.seas label span { color: var(--card-dim); font-size: 11.5px; }
+.seas input { position: absolute; opacity: 0; pointer-events: none; }
+.seas label:has(input:checked) { border-color: var(--jade); box-shadow: inset 0 0 0 1px var(--jade); background: rgba(63,174,124,.1); }
+.boats { grid-template-columns: repeat(2, 1fr) !important; }
+.seas label.off { opacity: .45; cursor: not-allowed; }
+.seas label:has(input:focus-visible) { outline: 2px solid var(--warn); outline-offset: 2px; }
+.missions { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; }
+.missions label { position: relative; border: 1px solid var(--card-line); border-radius: 6px; padding: 8px 10px; cursor: pointer; display: block; line-height: 1.35; }
+.missions label b { display: block; font-size: 14px; }
+.missions label span { color: var(--card-dim); font-size: 11.5px; }
+.missions input { position: absolute; opacity: 0; pointer-events: none; }
+.missions label:has(input:checked) { border-color: var(--jade); box-shadow: inset 0 0 0 1px var(--jade); background: rgba(63,174,124,.1); }
+.missions label:has(input:focus-visible) { outline: 2px solid var(--warn); outline-offset: 2px; }
+.card p.desc { margin: 10px 0 2px; font-size: 13.5px; line-height: 1.7; min-height: 3.4em; }
+.meta { font-size: 12px; color: var(--jade-deep); font-weight: 500; min-height: 1.2em; }
+:root[data-theme="dark"] .meta { color: var(--jade); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .meta { color: var(--jade); } }
+.how { margin-top: 12px; font-size: 12.5px; line-height: 1.7; color: var(--card-dim); }
+.how summary { cursor: pointer; font-weight: 700; color: var(--card-ink); font-size: 13px; }
+.how ul { margin: 6px 0 0; padding-left: 18px; }
+.how b { color: var(--card-ink); font-weight: 500; }
+.coach { width: 100%; box-sizing: border-box;
+  background: rgba(20, 34, 48, 0.82); border: 1px solid var(--panel-line); border-left: 3px solid var(--jade); border-radius: 6px; padding: 9px 13px 10px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.coach[hidden] { display: none; }
+.coachHead { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-dim); }
+.coachHead span:last-child { color: #b9f5d6; }
+.coach b { display: block; font-size: 15px; margin: 2px 0 3px; }
+.coach p { margin: 0; font-size: 12.5px; line-height: 1.6; }
+.coachBar { height: 5px; border-radius: 3px; background: rgba(255,255,255,.15); margin-top: 7px; overflow: hidden; }
+.coachBar[hidden] { display: none; }
+.coachBar i { display: block; height: 100%; width: 0; background: var(--jade); transition: width .2s; }
+.go { margin-top: 18px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.btn { border: 0; border-radius: 6px; padding: 12px 26px; font-size: 16px; font-weight: 700; background: var(--jade-deep); color: #fff; cursor: pointer; letter-spacing: .08em; }
+.btn:hover { background: #247a57; }
+.btn.ghost { background: transparent; color: var(--card-ink); border: 1px solid var(--card-line); font-weight: 500; letter-spacing: 0; }
+.hint { font-size: 11.5px; color: var(--card-dim); }
+.result { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 6px 0 4px; }
+.result div { border-top: 2px solid var(--jade); padding-top: 6px; font-size: 12px; color: var(--card-dim); }
+.result b { display: block; font-size: 22px; color: var(--card-ink); font-variant-numeric: tabular-nums; }
+.err { position: fixed; inset: 0; display: grid; place-items: center; background: #1c2733; color: #fff; font-size: 15px; padding: 24px; text-align: center; }
+
+@media (max-width: 760px), (max-height: 520px) {
+  .stats { width: 132px; gap: 3px; }
+  .row { padding: 3px 7px; }
+  .row .k { font-size: 10.5px; }
+  .row .k small { display: none; }
+  .row .v { font-size: 12.5px; }
+  .row .v small { font-size: 9px; }
+  .row.time .v { font-size: 15px; }
+  .chip { font-size: 11px; padding: 3px 9px; }
+  .helm button { width: 58px; height: 58px; }
+  .rudderview { display: none; }
+  .sheet { width: 168px; padding: 6px 9px 8px; }
+  .keys { display: none; }
+  .pill { padding: 6px 10px; font-size: 12px; }
+  .twa .v { font-size: 16px; }
+  .card { padding: 20px 20px 18px; }
+  .card p { font-size: 13.5px; line-height: 1.65; }
+}
+@media (max-height: 520px) {
+  .topc { top: calc(8px + env(safe-area-inset-top, 0px)); gap: 6px; width: min(400px, 39vw); }
+  .coach { padding: 6px 10px 7px; }
+  #map { width: 112px; height: 112px; }
+  .twa { padding: 2px 8px; }
+  .twa .k small { display: none; }
+  .twa .v { font-size: 14px; }
+  .menu-btn { width: 36px; height: 36px; right: calc(100% + 6px); }
+  .menu-btn svg { width: 18px; height: 18px; }
+  .notices { gap: 4px; }
+  .toast { font-size: 14px; padding: 6px 14px; }
+  .banner { font-size: 13px; padding: 6px 12px; }
+  .toast small, .banner small { font-size: 11px; }
+  .ride { margin-top: 3px; font-size: 11px; }
+  .ride .mini { width: 30px; height: 24px; }
+  .track { height: 30px; }
+  .coach p { font-size: 11.5px; line-height: 1.5; }
+  .coach b { font-size: 13px; }
+  .overlay { align-items: start; }
+}
+@media (max-width: 520px) {
+  /* 直式手機：上方左右兩欄（數據 | 地圖），狀態晶片接在數據欄下方；下方左邊是舵與按鈕，右邊是帆索 */
+  .topc { display: contents; }
+  .status { position: absolute; top: calc(218px + env(safe-area-inset-top, 0px)); left: calc(12px + env(safe-area-inset-left, 0px));
+    flex-direction: column; align-items: flex-start; max-width: calc(52vw - 16px); gap: 4px; }
+  .chip { white-space: normal; }
+  .trimbar { width: 40px; }
+  .coach { position: absolute; left: 12px; bottom: calc(150px + env(safe-area-inset-bottom, 0px)); width: calc(100vw - 24px); padding: 7px 11px 8px; }
+  .coach b { font-size: 13.5px; }
+  .coach p { font-size: 11.5px; line-height: 1.5; }
+  .controls { align-items: flex-end; }
+  .mid { position: absolute; left: calc(12px + env(safe-area-inset-left, 0px)); bottom: calc(76px + env(safe-area-inset-bottom, 0px)); flex-wrap: nowrap; width: max-content; justify-content: flex-start; }
+  .mid .pill { white-space: nowrap; padding: 6px 10px; font-size: 11.5px; }
+  .sheet { width: 172px; }
+  .helm { gap: 6px; }
+  .helm button { width: 54px; height: 54px; }
+  /* 直式：通知放在右欄地圖下方（左欄是數據與狀態），開啟效能資訊時再往下移 */
+  .notices { position: absolute; right: calc(10px + env(safe-area-inset-right, 0px)); top: calc(210px + env(safe-area-inset-top, 0px)); width: min(180px, 44vw); align-items: stretch; gap: 4px; }
+  body.perf-on .notices { top: calc(246px + env(safe-area-inset-top, 0px)); }
+  .toast { font-size: 13.5px; padding: 6px 10px; }
+  .banner { font-size: 12.5px; padding: 6px 10px; }
+  .toast small, .banner small { font-size: 10.5px; line-height: 1.4; }
+  .ride { font-size: 11px; }
+  .ride .mini { width: 30px; height: 26px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hud, .controls { transition: none; }
+  .toast, .banner { animation: none; }
+}
+</style>
+</head>
+<body>
+<canvas id="gl" aria-label="3D 帆船航行場景"></canvas>
+
+<div class="hud" id="hud" aria-live="off">
+  <div class="stats">
+    <div class="row"><div class="k">天氣<small>Weather</small></div><div class="v" id="hWeather"></div></div>
+    <div class="row"><div class="k">浪高<small>Wave height</small></div><div class="v" id="hWave">0.0 m</div></div>
+    <div class="row"><div class="k">風向<small>Wind direction</small></div><div class="v"><span class="arrow" id="hWindArrow">↑</span><small id="hWindDir">東北風</small></div></div>
+    <div class="row"><div class="k">風速<small>Wind speed</small></div><div class="v" id="hWindSpd">0 m/s<small>0 kn</small></div></div>
+    <div class="row"><div class="k">船速<small>Boat speed</small></div><div class="v" id="hSpeed">0.0 kn<small>0.0 m/s</small></div></div>
+    <div class="row time" id="hTimeRow"><div class="k" id="timeLabel">剩餘時間<small>Remaining time</small></div><div class="v" id="hTime">0:00</div></div>
+  </div>
+
+  <div class="nav">
+    <button class="menu-btn" id="menuBtn" aria-label="選單：暫停、重新開始、回主選單"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" fill="none"/></svg></button>
+    <canvas id="map" width="460" height="460" title="點擊切換地圖範圍"></canvas>
+    <div class="twa">
+      <div class="k">航行風角<small>True wind angle</small></div>
+      <div class="v" id="hTwa">0°</div>
+      <div class="next" id="hNext">—</div>
+    </div>
+    <div class="perf" id="perf" hidden></div>
+  </div>
+
+  <div class="topc">
+  <div class="status">
+    <div class="chip" id="cTrim">帆況 <b id="cTrimTxt">—</b><span class="trimbar"><i id="cTrimBar"></i></span></div>
+    <div class="chip" id="cHeel">橫傾 <b id="cHeelTxt">0°</b></div>
+    <div class="chip" id="cRide" hidden>水翼 <b id="cRideTxt">—</b></div>
+  </div>
+
+  <div class="coach" id="coach" hidden>
+    <div class="coachHead"><span id="coachStep"></span><span id="coachNote"></span></div>
+    <b id="coachTitle"></b>
+    <p id="coachText"></p>
+    <div class="coachBar" id="coachBarWrap"><i id="coachBar"></i></div>
+  </div>
+  <div class="notices" id="notices">
+    <div class="toast" id="toast"></div>
+    <div class="banner" id="banner"></div>
+  </div>
+  </div>
+</div>
+
+<div class="controls" id="controls">
+  <div class="helm">
+    <button id="bLeft" aria-label="向左轉舵"><div><span>◀</span>左舵</div></button>
+    <button id="bRight" aria-label="向右轉舵"><div><span>▶</span>右舵</div></button>
+    <div class="rudderview">舵角<div class="dial"><i id="rudderDial"></i></div>A / D 或 ← →</div>
+  </div>
+  <div class="mid">
+    <button class="pill" id="bCam">視角：船尾</button>
+    <button class="pill" id="bAuto" aria-pressed="false">自動調帆</button>
+  </div>
+  <div class="sheet">
+    <div class="lab"><span>帆索 Sheet</span><b id="sheetVal">30°</b></div>
+    <div class="track" id="track" role="slider" tabindex="0" aria-label="帆索角度" aria-valuemin="7" aria-valuemax="88" aria-valuenow="30">
+      <div class="rail"></div>
+      <div class="ideal" id="ideal" title="建議角度"></div>
+      <div class="knob" id="knob"></div>
+      <div class="ends"><span>收緊</span><span>放鬆</span></div>
+    </div>
+    <div class="keys">W / S 或 ↑ ↓ 調整　綠框為建議角度</div>
+    <div class="ride" id="rideRow" hidden><span>目標高度 <b id="rideVal">1.3 m</b></span><span><button class="mini" id="bRideDn" aria-label="降低飛行高度">▼</button><button class="mini" id="bRideUp" aria-label="提高飛行高度">▲</button></span></div>
+  </div>
+</div>
+
+<div class="overlay" id="startOv">
+  <div class="card">
+    <h1>東海岸帆船航行模擬</h1>
+    <div class="en">East Coast Sailing Simulator</div>
+    <h2>選擇任務</h2>
+    <div class="missions" id="missions"></div>
+    <p class="desc" id="missionDesc"></p>
+    <div class="meta" id="missionMeta"></div>
+    <h2>選擇船型</h2>
+    <div class="seas boats" id="boats">
+      <label><input type="radio" name="boat" value="outrigger" checked><b>邊架艇</b><span>南島語族傳統帆船・7 m・蟹爪帆</span></label>
+      <label><input type="radio" name="boat" value="foiler"><b>水翼雙體船</b><span>參考 SailGP F50・15 m・可以「飛」</span></label>
+    </div>
+    <h2>選擇海況</h2>
+    <div class="seas" id="seas">
+      <label><input type="radio" name="sea" value="calm"><b>平穩</b><span>風 5 m/s・浪 0.5 m</span></label>
+      <label><input type="radio" name="sea" value="moderate" checked><b>和風</b><span>風 7 m/s・浪 1.0 m</span></label>
+      <label><input type="radio" name="sea" value="rough"><b>大浪</b><span>風 10 m/s・浪 1.9 m</span></label>
+      <label><input type="radio" name="sea" value="storm"><b>暴風雨</b><span>風 15 m/s・浪 4 m・雷雨</span></label>
+    </div>
+    <details class="how">
+      <summary>怎麼開船</summary>
+      <ul>
+        <li><b>舵</b>決定船頭方向，按住越久打得越多；船要有速度，舵才有效。</li>
+        <li><b>帆索</b>控制帆能張開多大：帆抖動就收緊，帆失速就放鬆。</li>
+        <li>船無法正對風前進，目標在上風處時要「之」字形搶風。傳統邊架艇大約只能開到離風 60° 左右。</li>
+        <li><b>水翼船</b>任何任務都能選，飛不飛得起來看當下的風和浪：船速到約 11–14 節才有足夠升力。Q / E 或 ▼▲ 調整飛行高度；浪大時飛低一點，免得水翼破水。</li>
+      </ul>
+    </details>
+    <div class="go">
+      <button class="btn" id="bStart">揚帆出發</button>
+      <span class="hint" id="orientHint"></span>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="pauseOv" hidden>
+  <div class="card">
+    <h1>選單</h1>
+    <div class="en" id="pauseMission"></div>
+    <div class="go">
+      <button class="btn" id="bResume">繼續航行</button>
+      <button class="btn ghost" id="bRestart">重新開始</button>
+      <button class="btn ghost" id="bMenu">回主選單</button>
+      <button class="btn ghost" id="bPerf">顯示效能資訊</button>
+      <button class="btn ghost" id="bQuality">畫質：自動</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="endOv" hidden>
+  <div class="card">
+    <h1 id="endTitle">抵達蘭嶼</h1>
+    <div class="en" id="endEn">Arrived at Lanyu</div>
+    <p id="endText"></p>
+    <div class="result" id="endStats"></div>
+    <div class="go">
+      <button class="btn" id="bAgain">再航一次</button>
+      <button class="btn ghost" id="bEndMenu">換個任務</button>
+      <button class="btn ghost" id="bFree">繼續自由航行</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/*PHYSICS*/
+</script>
+<script>
+/*MAIN*/
+</script>
+</body>
+</html>
